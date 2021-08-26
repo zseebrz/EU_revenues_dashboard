@@ -1,0 +1,16 @@
+version: "3.6"
+
+services:
+  eu-revenues-dashboard:
+    build:
+      context: .
+    image: eu-revenues-dashboard:$VERSION
+    container_name: eu-revenues-dashboard
+    command: python index.py
+    volumes:
+      - .:/dashboard
+    ports:
+      - "8050:8080"
+    environment:
+      - TARGET=$TARGET
+    restart: unless-stopped
