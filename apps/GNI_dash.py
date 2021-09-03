@@ -16,22 +16,21 @@ from app import app
 
 from pm4py.objects.conversion.log import converter as log_converter
 
-from pm4py.algo.discovery.dfg import algorithm as dfg_discovery## Import the dfg visualization object
-from pm4py.visualization.dfg import visualizer as dfg_visualization#Create graph from log
+#from pm4py.algo.discovery.dfg import algorithm as dfg_discovery## Import the dfg visualization object
 
 from pm4py.algo.discovery.heuristics import algorithm as heuristics_miner
 #from pm4py.visualization.heuristics_net import visualizer as hn_visualizer
 #from pm4py.visualization.petri_net import visualizer as pn_visualizer
 
 ## Import the dfg_discovery algorithm
-#from pm4py.algo.discovery.dfg import algorithm as dfg_discovery## Import the dfg visualization object
+from pm4py.algo.discovery.dfg import algorithm as dfg_discovery## Import the dfg visualization object
 #from pm4py.visualization.dfg import visualizer as dfg_visualization#Create graph from log
 
 from pm4py.algo.organizational_mining.sna import algorithm as sna
 #from pm4py.algo.discovery.heuristics import algorithm as heuristics_miner
 #from pm4py.visualization.heuristics_net import visualizer as hn_visualizer
 #from pm4py.visualization.petri_net import visualizer as pn_visualizer
-import pm4py
+#import pm4py
 import numpy as np
     
 from pm4py.utils import get_properties
@@ -47,6 +46,10 @@ import os
 import networkx as nx
 import math
 
+from pm4py.visualization.dfg import visualizer as dfg_visualization#Create graph from log
+#from dfg_viz import visualizer as dfg_visualization#Create graph from log using forked, non-hash names
+
+from pm4py import discover_dfg as dfg_discovery2
 #app = dash.Dash()
 
 #helper function to get networkx data structure from a dfg matrix container
@@ -110,12 +113,13 @@ except:
 try:
     
     #rudimentary way of getting the RO extract filename from the upploads DW folder
-    for filename in os.listdir(UPLOADS_DW_FOLDER):
-        path = os.path.join(UPLOADS_DW_FOLDER, filename)
-        if os.path.isfile(path):
-            RO_extract = path
+    #for filename in os.listdir(UPLOADS_DW_FOLDER):
+    #    path = os.path.join(UPLOADS_DW_FOLDER, filename)
+    #    if os.path.isfile(path):
+    #        RO_extract = path
     
     #RO_extract = './uploads/dw/RO_2020_w_txt_fields.xlsx'
+    RO_extract = config_dict['RO_extract'] 
     
     df_recovery_extract_positions = pd.read_excel(RO_extract, sheet_name='RO Positions')
     
@@ -143,18 +147,18 @@ try:
     #a peculiar way to insantiate the parameters object, took a while to understand
     dfg_parameters = dfg_discovery.Variants.PERFORMANCE.value.Parameters
     parameters = get_properties(log)
-    #parameters[dfg_parameters.FORMAT] = format
+
     aggregationMeasure = "max"
     aggregation_measure = "max"
     parameters[dfg_parameters.AGGREGATION_MEASURE] = aggregationMeasure
     
-    dfg = dfg_discovery.apply(log)# Visualise
-    dfg_perf = dfg_discovery.apply(log, parameters=parameters, variant=dfg_discovery.Variants.PERFORMANCE)
+    #dfg = dfg_discovery.apply(log)# Visualise
+    #dfg_perf = dfg_discovery.apply(log, parameters=parameters, variant=dfg_discovery.Variants.PERFORMANCE)
     
     
     
-    dfg_1, start_activities, end_activities = pm4py.discover_dfg(log)
-    
+    #dfg, start_activities, end_activities = pm4py.discover_dfg(log)
+    dfg, start_activities, end_activities = dfg_discovery2(log)
     
     #a peculiar way to insantiate the parameters object, took a while to understand
     dfg_parameters = dfg_visualization.Variants.FREQUENCY.value.Parameters
@@ -163,12 +167,20 @@ try:
     parameters[dfg_parameters.START_ACTIVITIES] = start_activities
     parameters[dfg_parameters.END_ACTIVITIES] = end_activities
     
-    gviz_start_end = dfg_visualization.apply(dfg, log=log, parameters=parameters,
-                                             variant=dfg_visualization.Variants.FREQUENCY)
+    #gviz_start_end = dfg_visualization.apply(dfg, log=log, parameters=parameters,
+    #                                         variant=dfg_visualization.Variants.FREQUENCY)
+
+    import dfg_frequency
+    gviz_start_end = dfg_frequency.apply(dfg, log=log, parameters=parameters)
+
     
     gviz_start_end = gviz_start_end.source
+        
+    
     #pm4py.view_dfg(dfg_1, start_activities, end_activities)
     
+    #we don't need these for the moment
+    """
     dfg_parameters = dfg_visualization.Variants.PERFORMANCE.value.Parameters
     parameters = get_properties(log)
     #parameters[dfg_parameters.FORMAT] = format
@@ -184,22 +196,72 @@ try:
     
     gviz = dfg_visualization.apply(dfg, log=log, variant=dfg_visualization.Variants.FREQUENCY)
     gviz_perf = dfg_visualization.apply(dfg, log=log, variant=dfg_visualization.Variants.PERFORMANCE)
+    """
     
     heu_net = heuristics_miner.apply_heu(log, parameters={heuristics_miner.Variants.CLASSIC.value.Parameters.DEPENDENCY_THRESH: 0.99})
     gviz_heu = hn_visualizer.apply(heu_net)
     
-    gviz_heu.write("heu_graph.txt")
     
-    #convoluted way to get the dotfile as a struing
-    with open("heu_graph.txt","r") as f:
-        gviz_heu = f.read()
+    activity_list = list(heu_net.nodes.keys())
+    #need to get the reverse list, so first activity would be on the top, need to start from 1
+    activity_y_coordinates = list(range(1,len(activity_list)+1))[::-1]
+    
+   # activity_coordinates = list(zip(len(activity_list)*[0], activity_y_coordinates))
+    activity_coord = {}
+    for i, activity in enumerate(activity_list):
+        activity_coord[activity] = activity_y_coordinates[i]
+    
+    #breaking up the dot file into lines
+    gviz_start_end_lines = gviz_start_end.split('\n')
+    for i,line in enumerate(gviz_start_end_lines):
+        for activity in activity_list:
+            if activity in line and "->" not in line:
+                #print(line)
+                #line = line.replace('style=filled]', 'style=filled, pos="1,1"]')
+                activity_name = line.split('"')[1]
+                #activity_coord[activity_name]
+                #we need to add +1 so that the start and end activity would be max + 1 and 0
+                line = line.replace('style=filled]', str('style=filled, pos="0,' + str(activity_coord[activity_name]) + '!\"]'))
+                gviz_start_end_lines[i] = line
+                #print(line)
+            #the startnode has the highest position
+            elif '"@@startnode" [label=' in line:
+                line = line.replace('style=filled]', str('style=filled, pos="0,' + str(len(activity_list)+1) + '!\"]'))
+                gviz_start_end_lines[i] = line
+                line = line.replace('@@S','Start') 
+                line = line.replace('fontcolor="#32CD32"','')
+            #the endnode has the lowets position
+            elif '"@@endnode" [label=' in line:
+                line = line.replace('style=filled]', str('style=filled, pos="0,0!\"]'))
+                line = line.replace('@@E','End') 
+                line = line.replace('fontcolor="#FFA500"','')
+                gviz_start_end_lines[i] = line            
+                
+    
+    #add splines to make it look better
+    gviz_start_end_lines.insert(len(gviz_start_end_lines)-1,'\tsplines=True\n')
+    #putting the dot file back together
+    comparestring = '\n'.join(gviz_start_end_lines)
+    comparestring = comparestring.replace('fontsize=12','fontsize=10')
+    #comparestring == gviz_start_end
+    
+    gviz_start_end = comparestring
+               
         
+    #gviz_heu.write("heu_graph.txt")
+    
+    #convoluted way to get the dotfile as a string
+    #with open("heu_graph.txt","r") as f:
+    #    gviz_heu = f.read()
+        
+
+    #finally found a method to pass it as as string
+    gviz_heu = gviz_heu.to_string()
 
     hw_values = sna.apply(log, variant=sna.Variants.HANDOVER_LOG)
         
     G, labels = nx_viz(hw_values)
     
-
     
     weight_matrix = hw_values[0]
     names = hw_values[1]
@@ -346,6 +408,14 @@ except:
 #errors = df_errors.to_dict('records')
 #warnings = df_warnings.to_dict('records')
 
+error_stats = 'Number of errors: ' + str(len(df_errors)) + ' / ' + str(len(df)) + ', Amount affected by error: ' + str(int(df_errors['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
+warning_stats = 'Number of warnings: ' + str(len(df_warnings)) + ' / ' + str(len(df)) + ', Amount affected by warnings: ' + str(int(df_warnings['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
+countries_with_error = 'Member States affected by errors: ' + str(list(set(df_errors['MS'])))
+countries_with_warning = 'Member States affected by warnings: ' +  str(list(set(df_warnings['MS'])))
+
+error_stats = [error_stats, html.Br(), countries_with_error]
+warning_stats = [warning_stats, html.Br(), countries_with_warning]
+
 layout =     dbc.Container([
         dbc.Row([
             dbc.Col(html.H1("GNI and VAT revenue checks dashboard", className="text-center")
@@ -368,11 +438,20 @@ layout =     dbc.Container([
                     , className="mb-4")
             ]),
  
+        #dbc.Row([
+        #    dbc.Col([html.H5(children='Errors')]
+        #            , className="mb-5")
+        #    ]),
+
         dbc.Row([
-            dbc.Col(html.H5(children='Errors'
-                                     )
+            dbc.Col([html.H5(children=error_stats)]
                     , className="mb-5")
             ]),
+
+        #dbc.Row([
+        #    dbc.Col([html.H5(children=countries_with_error)]
+        #            , className="mb-5")
+        #    ]),
                   
             dbc.Container([
                     
@@ -384,12 +463,19 @@ layout =     dbc.Container([
             ]),#end of container
 
             html.Br(),
+            html.Br(),
 
             dbc.Row([
-            dbc.Col(html.H5(children='Warnings'
+            #dbc.Col(html.H5(#children='Warnings'
+            dbc.Col(html.H5(children=warning_stats
                                      )
                     , className="mb-5")
             ]),
+
+            #dbc.Row([
+            #dbc.Col([html.H5(children=countries_with_warning)]
+            #        , className="mb-5")
+            #]),
     
             dbc.Container([
                     
@@ -484,21 +570,55 @@ layout =     dbc.Container([
         html.Hr(),
         
         dbc.Row([
-            dbc.Col(html.H5(children='This is how the process looks like in real life:'
+            dbc.Col(html.H4(children='This is how the process looks like in real life:'
                                      )
                     , className="mb-4")
             ]),
                    
-            dbc.Container([
+            #dbc.Container([
+            html.Div([
+                
+                    html.Div(
                     
                     dash_interactive_graphviz.DashInteractiveGraphviz(
                         id="graph", 
                         style=dict(height="80%", width="80%", display="flex"),
+                        #engine='neato',
                         #style=dict(display="flex", flexDirection="column", fit="True", scale="1"),
                         #style={'fit': True, 'scale':'1'},
                         dot_source=gviz_start_end)
+                    
+                    ),
+                    
+                    html.Div([
+                        
+               
+                html.H5("Layout engine"),
+                dcc.Dropdown(
+                    id="engine",
+                    value="fdp",
+                    options=[
+                        dict(label=engine, value=engine)
+                        for engine in [
+                            "dot",
+                            "fdp",
+                            "neato",
+                            #"circo",
+                            #"osage",
+                            #"patchwork",
+                            #"twopi",
+                        ]
+                    ],
+                ), #end dropdown      
+                
+                html.P(''),
+                html.H5("Selected element"),
+                html.Div(id="selection"), 
+                        
+                        ], style=dict(display="flex", flexDirection="column"),)#end of div
                                     
-            ]),#end of container
+            ],style=dict(position="absolute", height="100%", width="100%", display="flex"),
+                ),#end of upper level div/container
  
             
         ]),     #end of tab   
@@ -512,12 +632,29 @@ layout =     dbc.Container([
                                      )
                     , className="mb-4")
             ]),
-                                   
+
+            dbc.Container([
+                    
+                    html.Div(
+                    
                     dash_interactive_graphviz.DashInteractiveGraphviz(
                         id="graph_heu", 
                         style=dict(height="80%", width="80%", display="flex"),
-                        #style={'fit':'True'},
+                        #engine='neato',
+                        #style=dict(display="flex", flexDirection="column", fit="True", scale="1"),
+                        #style={'fit': True, 'scale':'1'},
                         dot_source=gviz_heu)
+                    
+                    ),
+                    
+                    html.Div([
+                        
+                #html.H3("Selected element"),
+                html.Div(id="selection_heu"),                    
+                        
+                        ])
+                                    
+            ]),#end of container
             
         ]),     #end of tab   
         
@@ -534,11 +671,24 @@ layout =     dbc.Container([
             ]),
                  
                                 html.Div([
+                                    
+                                    
+                                    
+                                                    html.Div([
+                        
+                #html.H3("Selected element"),
+                html.Div(id="selection_cyto"),
+
+                html.Div(id="cyto_info"),                      
+                        
+                        ]),
+                                    
                                     cyto.Cytoscape(
                                         id='cytoscape',
                                         layout={'name': 'preset', 'directed':'True'},
                                         style={'width': '100%', 'height': '900px'},
                                         elements=elements,
+                                        responsive=True,
                                         stylesheet=[
                                         {
                                             'selector': 'node',
@@ -569,7 +719,9 @@ layout =     dbc.Container([
                                             }
                                             }] #stylesheet end
                                     )
-                                ])   
+                                ]),
+                                
+
 
 
                                     #dcc.Loading(
@@ -784,6 +936,40 @@ def update_VAT_graph(xaxis_name, yaxis_name):
             showlegend = False
         )
     }
+
+@app.callback(Output("selection", "children"), [Input("graph", "selected_node"), Input("graph", "selected_edge")])
+def show_selected(node, edge):
+    node_count = eventlog[eventlog['concept:name']==node]
+    #edge info is not used yet
+    #edge_count = eventlog[eventlog['concept:name']==edge]
+    node_msg = '\n' + str(len(node_count)) + ' out of ' + str(len(eventlog['case:concept:name'].unique())) + ' cases'
+    #return [node, edge, node_msg]
+    if node:
+        return [html.P(node), html.P(node_msg)]
+
+@app.callback(Output("selection_heu", "children"), [Input("graph_heu", "selected_node"), Input("graph_heu", "selected_edge")])
+def show_selected_heu(node, edge):
+    return [node, edge]
+
+@app.callback(
+    [Output("selection_cyto", "children"),Output("cyto_info", "children"),], 
+    #[Input("cytoscape", "selectedNodeData"), Input("cytoscape", "selectedEdgeData")])
+    [Input("cytoscape", "tapNodeData"), Input("cytoscape", "tapEdgeData")])
+def show_selected_cyto(node, edge):
+    #we don't use the edges at this point, maybe later
+    basic_info = str(node)# + ' / ' + str(edge)
+    try:
+        extended_info = 'Involved in ' + str(len(eventlog[eventlog['org:resource']==node['label']]['case:concept:name'].unique())) + ' / ' +str(len(eventlog['case:concept:name'].unique())) + ' cases'
+    except:
+        extended_info = ''
+    return basic_info, extended_info
+
+@app.callback(
+    Output("graph", "engine"),
+    Input("engine", "value"),
+)
+def display_output(value):
+    return value
 
 #if __name__ == '__main__':
 #    app.run_server()
