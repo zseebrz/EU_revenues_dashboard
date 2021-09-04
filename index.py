@@ -1,3 +1,13 @@
+#open the persistent config storage
+from sqlitedict import SqliteDict
+from first_run import InitializeConfig
+try:
+    config_dict = SqliteDict('./config/config_db.sqlite', autocommit=True)
+except:
+    InitializeConfig()
+    config_dict = SqliteDict('./config/config_db.sqlite', autocommit=True)
+
+
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
@@ -7,15 +17,13 @@ import dash_bootstrap_components as dbc
 from app import server
 from app import app
 # import all pages in the app
-from apps import home, GNI_dash, file_upload, preprocess_checks#, global_situation, singapore,
+from apps import home, GNI_dash, file_upload, preprocess_checks
 
 from flask import Flask, send_from_directory
 #import socket
-from sqlitedict import SqliteDict
+
 import os
 
-#open the persistent config storage
-config_dict = SqliteDict('./config/config_db.sqlite', autocommit=True)
 #config_dict.close()
 
 # building the navigation bar
@@ -145,4 +153,5 @@ def download(path):
 if __name__ == '__main__':
     #app.run_server(debug=True, host='0.0.0.0', port = 8050)
     #need to disable hot reload for the downloading the whole audit zip package
-    app.run_server(debug=True,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)
+    #app.run_server(debug=True,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)
+    app.run_server(debug=False,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)

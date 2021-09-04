@@ -4,13 +4,11 @@ services:
   eu-revenues-dashboard:
     build:
       context: .
-    image: eu-revenues-dashboard:$VERSION
-    container_name: eu-revenues-dashboard
+    container_name: dash
+    #command: python first_run.py
     command: python index.py
     volumes:
-      - .:/dashboard
+      - .:/home/python/app
     ports:
-      - "8050:8080"
-    environment:
-      - TARGET=$TARGET
-    restart: unless-stopped
+      - "8050:8050"
+     

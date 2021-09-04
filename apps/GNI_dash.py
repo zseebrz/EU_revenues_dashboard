@@ -408,13 +408,17 @@ except:
 #errors = df_errors.to_dict('records')
 #warnings = df_warnings.to_dict('records')
 
-error_stats = 'Number of errors: ' + str(len(df_errors)) + ' / ' + str(len(df)) + ', Amount affected by error: ' + str(int(df_errors['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
-warning_stats = 'Number of warnings: ' + str(len(df_warnings)) + ' / ' + str(len(df)) + ', Amount affected by warnings: ' + str(int(df_warnings['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
-countries_with_error = 'Member States affected by errors: ' + str(list(set(df_errors['MS'])))
-countries_with_warning = 'Member States affected by warnings: ' +  str(list(set(df_warnings['MS'])))
-
-error_stats = [error_stats, html.Br(), countries_with_error]
-warning_stats = [warning_stats, html.Br(), countries_with_warning]
+try:
+    error_stats = 'Number of errors: ' + str(len(df_errors)) + ' / ' + str(len(df)) + ', Amount affected by error: ' + str(int(df_errors['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
+    warning_stats = 'Number of warnings: ' + str(len(df_warnings)) + ' / ' + str(len(df)) + ', Amount affected by warnings: ' + str(int(df_warnings['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
+    countries_with_error = 'Member States affected by errors: ' + str(list(set(df_errors['MS'])))
+    countries_with_warning = 'Member States affected by warnings: ' +  str(list(set(df_warnings['MS'])))
+    
+    error_stats = [error_stats, html.Br(), countries_with_error]
+    warning_stats = [warning_stats, html.Br(), countries_with_warning]
+except:
+    error_stats = ''
+    warning_stats = ''
 
 layout =     dbc.Container([
         dbc.Row([
@@ -475,7 +479,7 @@ layout =     dbc.Container([
             #dbc.Row([
             #dbc.Col([html.H5(children=countries_with_warning)]
             #        , className="mb-5")
-            #]),
+            #                   ]),
     
             dbc.Container([
                     
