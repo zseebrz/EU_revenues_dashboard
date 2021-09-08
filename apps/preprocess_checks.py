@@ -110,6 +110,12 @@ for FOLDER in PREPROCESS_FOLDERS:
     if not os.path.exists(FOLDER):
         os.makedirs(FOLDER)
 
+if not os.path.exists(CFF_XLSX_FOLDER):
+    os.makedirs(CFF_XLSX_FOLDER)
+  
+if not os.path.exists('./cff_dates/'):
+    os.makedirs('./cff_dates/')
+
 #global variable for spinner on check button
 #checks_running = False
 
@@ -582,11 +588,13 @@ def run_preprocessing_and_checks(n_clicks):
         try:
             shutil.rmtree("./temp_zip")
         except:
+            config_dict['status_message'] = 'folder delete failed'
             pass
 
         try:
             os.remove(config_dict['last_zipfile_name'])
         except:
+            config_dict['status_message'] = 'zip file delete failed'
             pass
         
         """
@@ -597,14 +605,15 @@ def run_preprocessing_and_checks(n_clicks):
         """
         #config_dict['status_message'] = 'copy start'
         shutil.copytree("./", "./temp_zip")
+        config_dict['status_message'] = 'snapshot copied'
         
         zipfile = './temp_zip/audit_package_' + config_dict['last_checks_datetime'] + '.zip'
         config_dict['last_zipfile_name'] = zipfile
-        #config_dict['status_message'] = zipfile
+        config_dict['status_message'] = zipfile
         
         src_path = Path("./temp_zip").expanduser().resolve(strict=True)
-        #config_dict['status_message'] = str(src_path)
-        #config_dict['status_message'] = 'zip start'
+        config_dict['status_message'] = str(src_path)
+        config_dict['status_message'] = 'zip start'
         
         #for file in src_path.rglob('*'):
         #    config_dict['status_message'] = str(file)
@@ -614,14 +623,15 @@ def run_preprocessing_and_checks(n_clicks):
         with ZipFile(zipfile, 'w') as zf:
             for file in src_path.rglob('*'):
                 #print(file)
-                #config_dict['status_message'] = str(file)
+                config_dict['status_message'] = str(file)
                 #need to remove the "./" from the zipfile name and take the string value of the PosixPath object
                 #and exclude the zip archive from the recursive operation, otherwise it freaks out
                 #if zip_name[2:] not in str(file) and "__pycache__" not in str(file) and "heu_graph.text" not in str(file):
                 if zipfile[2:] not in str(file):
                     zf.write(file, file.relative_to(src_path.parent))
-                    #config_dict['status_message'] = str(file)+ 'has been zipped'
+                    config_dict['status_message'] = str(file)+ 'has been zipped'
                 else:
+                    config_dict['status_message'] = str(file)+ 'skipped'
                     pass
         
         
@@ -629,6 +639,8 @@ def run_preprocessing_and_checks(n_clicks):
         
         #zip_dir(zipfile, "./temp_zip")
         #config_dict['last_zipfile_name'] = zipfile
+        
+        config_dict['status_message'] = ''
         
         return dbc.Container([
                         dbc.Row(
