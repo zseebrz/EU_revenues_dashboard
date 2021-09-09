@@ -7,6 +7,7 @@ Created on Mon Aug 23 21:16:46 2021
 """
 from sqlitedict import SqliteDict
 import os
+import pandas as pd
 
 
 # Create persistent storage of config variables and semaphors if it doesn't yet exists
@@ -100,6 +101,30 @@ def InitializeConfig():
         config_dict['last_checks_datetime'] = ''
         
         config_dict['last_zipfile_name'] = ''
+        
+        config_dict['dash_df'] = pd.DataFrame()
+        
+        config_dict['dash_log'] = None
+        config_dict['dash_eventlog'] = None
+        
+        config_dict['dash_gviz_start_end'] = None
+        config_dict['dash_elements'] = None 
+        config_dict['dash_gviz_heu'] = None 
+        
+        config_dict['dash_features'] = []
+        
+        config_dict['dash_df_errors'] = pd.DataFrame()
+        config_dict['dash_df_warnings'] = pd.DataFrame()
+        config_dict['dash_df_risks'] = pd.DataFrame()
+        config_dict['dash_df2'] = pd.DataFrame()       
+        config_dict['dash_df_VAT'] = pd.DataFrame()
+        config_dict['dash_df_GNI'] = pd.DataFrame()
+        
+        config_dict['dash_error_stats'] = ''
+        config_dict['dash_warning_stats'] = ''
+        config_dict['dash_countries_with_error'] = ''
+        config_dict['dash_countries_with_warning'] = ''
+        
         
         #for key, value in config_dict.iteritems():
         #    print(key, value)

@@ -54,6 +54,44 @@ import shutil
 #from operator import concat
 #from audit_revenues_2021_july_website import rename_dupes_with_number, make_hyperlink, GetWorkFlowData
 
+from pm4py.objects.conversion.log import converter as log_converter
+
+#from pm4py.algo.discovery.dfg import algorithm as dfg_discovery## Import the dfg visualization object
+
+from pm4py.algo.discovery.heuristics import algorithm as heuristics_miner
+#from pm4py.visualization.heuristics_net import visualizer as hn_visualizer
+#from pm4py.visualization.petri_net import visualizer as pn_visualizer
+
+## Import the dfg_discovery algorithm
+from pm4py.algo.discovery.dfg import algorithm as dfg_discovery## Import the dfg visualization object
+#from pm4py.visualization.dfg import visualizer as dfg_visualization#Create graph from log
+
+from pm4py.algo.organizational_mining.sna import algorithm as sna
+#from pm4py.algo.discovery.heuristics import algorithm as heuristics_miner
+#from pm4py.visualization.heuristics_net import visualizer as hn_visualizer
+#from pm4py.visualization.petri_net import visualizer as pn_visualizer
+#import pm4py
+import numpy as np
+    
+from pm4py.utils import get_properties
+import dash_cytoscape as cyto
+
+#this is a fork of the pm4py heuristic net visualiser that returns a graphviz object instead of a bitmap
+import heu_graph as hn_visualizer
+
+#import heu_graph
+import dash_interactive_graphviz
+import os
+
+import networkx as nx
+import math
+
+from pm4py.visualization.dfg import visualizer as dfg_visualization#Create graph from log
+#from dfg_viz import visualizer as dfg_visualization#Create graph from log using forked, non-hash names
+
+from pm4py import discover_dfg as dfg_discovery2
+
+
 from sqlitedict import SqliteDict
 config_dict = SqliteDict('./config/config_db.sqlite', autocommit=True)
 
@@ -115,6 +153,50 @@ if not os.path.exists(CFF_XLSX_FOLDER):
   
 if not os.path.exists('./cff_dates/'):
     os.makedirs('./cff_dates/')
+
+#helper function to get networkx data structure from a dfg matrix container
+def nx_viz(metric_values):
+    """
+    Perform SNA visualization starting from the Matrix Container object
+    and the Resource-Resource matrix
+    Parameters
+    -------------
+    metric_values
+        Value of the metrics
+    parameters
+        Possible parameters of the algorithm, including:
+            - Parameters.WEIGHT_THRESHOLD -> the weight threshold to use in displaying the graph
+            - Parameters.FORMAT -> format of the output image (png, svg ...)
+    Returns
+    -------------
+    graph
+        networkX graph
+    """
+    import networkx as nx
+
+    weight_threshold = 0
+    
+    directed = metric_values[2]
+
+    rows, cols = np.where(metric_values[0] > weight_threshold)
+    edges = zip(rows.tolist(), cols.tolist())
+
+    if directed:
+        graph = nx.DiGraph()
+    else:
+        graph = nx.Graph()
+
+    labels = {}
+    nodes = []
+    for index, item in enumerate(metric_values[1]):
+        labels[index] = item
+        nodes.append(index)
+
+    graph.add_nodes_from(nodes)
+    graph.add_edges_from(edges)
+
+
+    return graph, labels
 
 #global variable for spinner on check button
 #checks_running = False
@@ -223,7 +305,7 @@ def render_content(tab):
         preprocess_message = "Some pre-processing is needed before we can run the checks. Please click on the 'Start pre-processing' button"
 
     if (config_dict['checks_lock'] == True) and (config_dict['cff_date_lock'] == False):
-        checks_message = "Now that everything is ready, you can download the results by clicking on the link at the bottom of the page, or you can check out the Analytics dashboard"
+        checks_message = "Now that everything is ready, you can download the results by clicking on the link at the bottom of the page, or you can check out the Analytics dashboard. Please refresh the page!"
     elif (config_dict['cff_date_lock'] == True):
         checks_message = "There is one step left: please click on the 'Run the pre-processing and the audit checks' button"
     else:
@@ -639,6 +721,331 @@ def run_preprocessing_and_checks(n_clicks):
         
         #zip_dir(zipfile, "./temp_zip")
         #config_dict['last_zipfile_name'] = zipfile
+
+    
+        #preparing the dashboard visual data
+        config_dict['status_message'] = 'Preparing visualisation data'
+        try:
+            config_dict['dash_df'] = pd.read_excel(config_dict['RESULT_FILE'])
+            
+            config_dict['status_message'] = 'Initial data load successful'
+        except:
+            config_dict['dash_df'] = pd.DataFrame()
+        
+        try:
+            
+            #rudimentary way of getting the RO extract filename from the upploads DW folder
+            #for filename in os.listdir(UPLOADS_DW_FOLDER):
+            #    path = os.path.join(UPLOADS_DW_FOLDER, filename)
+            #    if os.path.isfile(path):
+            #        RO_extract = path
+            
+            #RO_extract = './uploads/dw/RO_2020_w_txt_fields.xlsx'
+            RO_extract = config_dict['RO_extract'] 
+            
+            df_recovery_extract_positions = pd.read_excel(RO_extract, sheet_name='RO Positions')
+            
+            df_recovery_extract_VAT_GNI_positions = df_recovery_extract_positions[ (df_recovery_extract_positions['RO SubNature of Recovery Desc']=='REVENUES VAT') |  (df_recovery_extract_positions['RO SubNature of Recovery Desc']=='REVENUES GNI')]
+            
+            df_recovery_extract_workflow = pd.read_excel(RO_extract, sheet_name='RO Workflows')
+            
+            VAT_GNI_keys = df_recovery_extract_workflow['RO Local Key'].isin(df_recovery_extract_VAT_GNI_positions['RO Local Key'])
+            
+            eventlog = df_recovery_extract_workflow[VAT_GNI_keys]
+            
+            eventlog['action'] = eventlog['Workflow Action Code'] + ' - ' + eventlog['Workflow Step Description']  
+            
+            eventlog.rename(columns={'Workflow Action DateTime': 'time:timestamp', 
+            'RO Local Key': 'case:concept:name', 'action': 'concept:name', 'Workflow Person Id': 'org:resource'}, inplace=True)
+            
+            eventlog['time:start_timestamp'] = eventlog['time:timestamp']
+            
+            log = log_converter.apply(eventlog)
+            config_dict['dash_log'] = log
+            config_dict['dash_eventlog'] = eventlog
+            
+            config_dict['status_message'] = 'Event log creation successful'
+    
+            dfg, start_activities, end_activities = dfg_discovery2(log)
+            
+            #a peculiar way to insantiate the parameters object, took a while to understand
+            dfg_parameters = dfg_visualization.Variants.FREQUENCY.value.Parameters
+            parameters = get_properties(log)
+            #parameters[dfg_parameters.FORMAT] = format
+            parameters[dfg_parameters.START_ACTIVITIES] = start_activities
+            parameters[dfg_parameters.END_ACTIVITIES] = end_activities
+            
+            #gviz_start_end = dfg_visualization.apply(dfg, log=log, parameters=parameters,
+            #                                         variant=dfg_visualization.Variants.FREQUENCY)
+        
+            import dfg_frequency
+            gviz_start_end = dfg_frequency.apply(dfg, log=log, parameters=parameters)
+        
+            
+            gviz_start_end = gviz_start_end.source
+            config_dict['dash_gviz_start_end']   =    gviz_start_end
+                    
+            heu_net = heuristics_miner.apply_heu(log, parameters={heuristics_miner.Variants.CLASSIC.value.Parameters.DEPENDENCY_THRESH: 0.99})
+            gviz_heu = hn_visualizer.apply(heu_net)
+            
+            config_dict['status_message'] = 'Process map creation successful'
+            
+            activity_list = list(heu_net.nodes.keys())
+            #need to get the reverse list, so first activity would be on the top, need to start from 1
+            activity_y_coordinates = list(range(1,len(activity_list)+1))[::-1]
+            
+           # activity_coordinates = list(zip(len(activity_list)*[0], activity_y_coordinates))
+            activity_coord = {}
+            for i, activity in enumerate(activity_list):
+                activity_coord[activity] = activity_y_coordinates[i]
+            
+            #breaking up the dot file into lines
+            gviz_start_end_lines = gviz_start_end.split('\n')
+            for i,line in enumerate(gviz_start_end_lines):
+                for activity in activity_list:
+                    if activity in line and "->" not in line:
+                        #print(line)
+                        #line = line.replace('style=filled]', 'style=filled, pos="1,1"]')
+                        activity_name = line.split('"')[1]
+                        #activity_coord[activity_name]
+                        #we need to add +1 so that the start and end activity would be max + 1 and 0
+                        line = line.replace('style=filled]', str('style=filled, pos="0,' + str(activity_coord[activity_name]) + '!\"]'))
+                        gviz_start_end_lines[i] = line
+                        #print(line)
+                    #the startnode has the highest position
+                    elif '"@@startnode" [label=' in line:
+                        line = line.replace('style=filled]', str('style=filled, pos="0,' + str(len(activity_list)+1) + '!\"]'))
+                        gviz_start_end_lines[i] = line
+                        line = line.replace('@@S','Start') 
+                        line = line.replace('fontcolor="#32CD32"','')
+                    #the endnode has the lowets position
+                    elif '"@@endnode" [label=' in line:
+                        line = line.replace('style=filled]', str('style=filled, pos="0,0!\"]'))
+                        line = line.replace('@@E','End') 
+                        line = line.replace('fontcolor="#FFA500"','')
+                        gviz_start_end_lines[i] = line            
+                        
+            
+            #add splines to make it look better
+            gviz_start_end_lines.insert(len(gviz_start_end_lines)-1,'\tsplines=True\n')
+            #putting the dot file back together
+            comparestring = '\n'.join(gviz_start_end_lines)
+            comparestring = comparestring.replace('fontsize=12','fontsize=10')
+            #comparestring == gviz_start_end
+            
+            gviz_start_end = comparestring
+            
+            config_dict['dash_gviz_start_end'] = gviz_start_end     
+            
+            config_dict['status_message'] = 'Process map layout creation successful'
+                
+            #gviz_heu.write("heu_graph.txt")
+            
+            #convoluted way to get the dotfile as a string
+            #with open("heu_graph.txt","r") as f:
+            #    gviz_heu = f.read()
+                
+        
+            #finally found a method to pass it as as string
+            gviz_heu = gviz_heu.to_string()
+            config_dict['dash_gviz_heu'] = gviz_heu
+    
+            config_dict['status_message'] = 'Process model layout creation successful'
+        
+            hw_values = sna.apply(log, variant=sna.Variants.HANDOVER_LOG)
+                
+            G, labels = nx_viz(hw_values)
+            
+            
+            weight_matrix = hw_values[0]
+            names = hw_values[1]
+            
+            #create the cytoscape graph
+            pos = nx.layout.circular_layout(G, scale = 4)
+            nodes = [
+                {
+                    'data': {'id': str(node), 'label': labels[node]},
+                    'position': {'x': int(200*pos[node][0]), 'y': int(200*pos[node][1])},
+                    #'locked': 'false'
+                }
+                for node in G.nodes
+            ]
+            
+            
+            edges = []
+            for edge in G.edges:
+                #if {'data': {'source': str(edge[0]), 'target': str(edge[1])}} not in edges and str(edge[0]) != str(edge[1]):
+                #    edges.append({'data': {'source': str(edge[0]), 'target': str(edge[1])}})
+                if str(edge[0]) != str(edge[1]):
+                    edges.append({'data': {'source': str(edge[0]), 'target': str(edge[1])}})
+            
+            edges_int = []
+            for edge in G.edges:
+                #if {'data': {'source': edge[0], 'target': edge[1]}} not in edges and edge[0] != edge[1]:
+                #    edges_int.append({'data': {'source': edge[0], 'target': edge[1]}})
+                if str(edge[0]) != str(edge[1]):
+                    edges_int.append({'data': {'source': edge[0], 'target': edge[1]}})
+            
+            #adding the weights from the edges_int list. a bit convoluted, but cytoscape requires strings for IDs
+            for i,edge in enumerate(edges_int):
+                #print(i, edge)
+                edges[i]['data']['weight'] = math.log(weight_matrix[edge['data']['source'],edge['data']['target']] * 20000,4)
+                #edges[i]['data']['weight'] = weight_matrix[edge['data']['source'],edge['data']['target']] * 200
+            
+            elements = nodes + edges
+        
+            config_dict['dash_elements'] = elements 
+            
+            config_dict['status_message'] = 'Social network graph creation successful'
+            
+        except:
+            #gviz = None
+            gviz_start_end = None 
+            elements = None
+            gviz_heu = None
+    
+            config_dict['dash_gviz_start_end'] = None
+            config_dict['dash_elements'] = None 
+            config_dict['dash_gviz_heu'] = None 
+            
+            config_dict['status_message'] = 'Error during process mining calculations'
+        
+        """
+        df = df[['authorising_officer', 'RO Cashed Payment Amount (Eur)_pos']]
+        
+        df.columns = ['officer', 'cashed']
+        """
+        
+        #features = df.columns
+        features = config_dict['dash_df'].columns
+        
+        config_dict['dash_features'] = features
+        
+        
+        #helper function for scatterplot labels
+        def label_audit_results (row):
+            if row['Errors'] != '[]' :
+                return 'Error'
+            elif row['Warnings'] != '[]' :
+                return 'Warning'
+            else:
+                 return 'No error'
+        
+        
+        #calculating VAT and GNI data
+        try:
+            df_GNI = pd.read_excel(config_dict['RESULT_FILE'], sheet_name='GNI')
+            df_VAT = pd.read_excel(config_dict['RESULT_FILE'], sheet_name='VAT')
+            
+            df_GNI['Audit results'] = df_GNI.apply (lambda row: label_audit_results(row), axis=1)
+            df_VAT['Audit results'] = df_VAT.apply (lambda row: label_audit_results(row), axis=1)
+            
+            colorsIdx = {'No error': '#1f77b4', 'Warning': '#ff7f0e', 'Error': '#d62728'}
+            
+            df_GNI['Audit classification'] = df_GNI['Audit results'].map(colorsIdx)
+            df_VAT['Audit classification'] = df_VAT['Audit results'].map(colorsIdx)
+            
+            df = df_GNI.append(df_VAT)
+            
+            result = df[['MS', 'transaction_type', 'RO Cashed Amount (Eur)_pos',
+                   'Rejection in workflow',
+                   'Workflow steps exceed average',
+                   'Workflow duration longer than average', 'One-day-approval',
+                   'workflow_days_under_30', 'budget_line_correct', 'SAP_accounting_class',
+                   'recovery_order_position_amount_in_local_curr_matches_call',
+                   'Missing SAP data', 'amount_diff_within_tolerance',
+                   'amount_requested_in_time',
+                   'cashing deadline_observed', 'CFF_rate_diff_within_tolerance']].groupby(['MS',
+                                                                                     'transaction_type']).sum()
+            
+            
+            
+            result = result.reset_index()
+                                                                                            
+            x = result[result['transaction_type']=='VAT']['RO Cashed Amount (Eur)_pos']
+            y = result[result['transaction_type']=='GNI']['RO Cashed Amount (Eur)_pos']
+            ms = result[result['transaction_type']=='VAT']['MS']
+            
+            df2 = pd.DataFrame()
+            df2['GNI'] = list(y)
+            df2['VAT'] = list(x)
+            df2['MS'] = list(ms)
+            
+            df_GNI_errors = df_GNI[df_GNI['Errors'] != '[]']
+            df_VAT_errors = df_VAT[df_VAT['Errors'] != '[]']
+            
+            df_GNI_warnings = df_GNI[df_GNI['Warnings'] != '[]']
+            df_VAT_warnings = df_VAT[df_VAT['Warnings'] != '[]']
+            
+            df_GNI_risks = df_GNI[(df_GNI['Risk flags'] != '[]') & (df_GNI['Risk flags'] != "['One-day-approval']")  & (df_GNI['Risk flags'] != "['Workflow duration longer than average']")]
+            df_VAT_risks = df_VAT[(df_VAT['Risk flags'] != '[]') & (df_VAT['Risk flags'] != "['One-day-approval']")  & (df_VAT['Risk flags'] != "['Workflow duration longer than average']")]
+            
+            df_errors = df_GNI_errors.append(df_VAT_errors)
+            
+            df_warnings = df_GNI_warnings.append(df_VAT_warnings)
+            
+            df_risks = df_GNI_risks.append(df_VAT_risks)
+            
+            df_errors = df_errors[['RO Position Local Key', 
+                   'GL Account Short Desc', 'RO Due Date','RO Cashing Cashed Date',
+                   'RO SubNature of Recovery Desc', 'RO Cashed Amount (Eur)_pos',
+                   'month', 'MS', 'authorising_officer',
+                   'Risk flags', 'Warnings', 'Errors']]
+            
+            df_warnings = df_warnings[['RO Position Local Key', 
+                   'GL Account Short Desc', 'RO Due Date','RO Cashing Cashed Date',
+                   'RO SubNature of Recovery Desc', 'RO Cashed Amount (Eur)_pos',
+                   'month', 'MS', 'authorising_officer',
+                   'Risk flags', 'Warnings', 'Errors']]
+            
+            df_risks = df_risks[['RO Position Local Key', 
+                   'GL Account Short Desc', 'RO Due Date','RO Cashing Cashed Date',
+                   'RO SubNature of Recovery Desc', 'RO Cashed Amount (Eur)_pos',
+                   'month', 'MS', 'authorising_officer',
+                   'Risk flags', 'Warnings', 'Errors']]
+            
+            config_dict['status_message'] = 'Error analysis calculations completed'
+        
+        except:
+        
+            df_errors = pd.DataFrame()
+            df_warnings = pd.DataFrame()
+            df_risks = pd.DataFrame()
+            df2 = pd.DataFrame()
+            
+            config_dict['status_message'] = 'Error during analysis calculations'
+            
+        config_dict['dash_df_errors'] = df_errors
+        config_dict['dash_df_warnings'] = df_warnings
+        config_dict['dash_df_risks'] = df_risks
+        config_dict['dash_df2'] = df2       
+        config_dict['dash_df_VAT'] = df_VAT
+        config_dict['dash_df_GNI'] = df_GNI
+            
+        #errors = df_errors.to_dict('records')
+        #warnings = df_warnings.to_dict('records')
+        
+        try:
+            error_stats = 'Number of errors: ' + str(len(df_errors)) + ' / ' + str(len(df)) + ', Amount affected by error: ' + str(int(df_errors['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
+            warning_stats = 'Number of warnings: ' + str(len(df_warnings)) + ' / ' + str(len(df)) + ', Amount affected by warnings: ' + str(int(df_warnings['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
+            countries_with_error = 'Member States affected by errors: ' + str(list(set(df_errors['MS'])))
+            countries_with_warning = 'Member States affected by warnings: ' +  str(list(set(df_warnings['MS'])))
+            
+            error_stats = [error_stats, html.Br(), countries_with_error]
+            warning_stats = [warning_stats, html.Br(), countries_with_warning]
+            
+        except:
+            error_stats = ''
+            warning_stats = ''
+            countries_with_error = ''
+            countries_with_warning = ''
+            
+        config_dict['dash_error_stats'] = error_stats
+        config_dict['dash_warning_stats'] = warning_stats
+        config_dict['dash_countries_with_error'] = countries_with_error
+        config_dict['dash_countries_with_warning'] = countries_with_warning
+
+
         
         config_dict['status_message'] = ''
         

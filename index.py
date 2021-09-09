@@ -153,5 +153,5 @@ def download(path):
 if __name__ == '__main__':
     #app.run_server(debug=True, host='0.0.0.0', port = 8050)
     #need to disable hot reload for the downloading the whole audit zip package
-    #app.run_server(debug=True,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)
-    app.run_server(debug=False,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)
+    app.run_server(debug=True,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)
+    #app.run_server(debug=False,  dev_tools_hot_reload = False, host='0.0.0.0', port = 8050)

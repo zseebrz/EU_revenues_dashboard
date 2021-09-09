@@ -6,7 +6,8 @@ import dash
 import dash_core_components as dcc
 import dash_html_components as html
 import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output
+#from dash.dependencies import Input, Output
+from dash_extensions.enrich import Dash, ServersideOutput, Output, Input, Trigger
 import dash_table as dt
 
 import plotly.graph_objects as go
@@ -97,6 +98,8 @@ def nx_viz(metric_values):
     return graph, labels
 
 from sqlitedict import SqliteDict
+#desperate try
+global config_dict
 config_dict = SqliteDict('./config/config_db.sqlite', autocommit=True)
 
 RESULTS_FOLDER = config_dict['RESULTS_FOLDER'] 
@@ -105,334 +108,46 @@ UPLOADS_DW_FOLDER = config_dict['UPLOADS_DW_FOLDER']
 if not os.path.exists(RESULTS_FOLDER):
     os.makedirs(RESULTS_FOLDER)
 
-try:
-    df = pd.read_excel(config_dict['RESULT_FILE'])
-except:
-    df = pd.DataFrame()
-
-try:
-    
-    #rudimentary way of getting the RO extract filename from the upploads DW folder
-    #for filename in os.listdir(UPLOADS_DW_FOLDER):
-    #    path = os.path.join(UPLOADS_DW_FOLDER, filename)
-    #    if os.path.isfile(path):
-    #        RO_extract = path
-    
-    #RO_extract = './uploads/dw/RO_2020_w_txt_fields.xlsx'
-    RO_extract = config_dict['RO_extract'] 
-    
-    df_recovery_extract_positions = pd.read_excel(RO_extract, sheet_name='RO Positions')
-    
-    df_recovery_extract_VAT_GNI_positions = df_recovery_extract_positions[ (df_recovery_extract_positions['RO SubNature of Recovery Desc']=='REVENUES VAT') |  (df_recovery_extract_positions['RO SubNature of Recovery Desc']=='REVENUES GNI')]
-    
-    df_recovery_extract_workflow = pd.read_excel(RO_extract, sheet_name='RO Workflows')
-    
-    VAT_GNI_keys = df_recovery_extract_workflow['RO Local Key'].isin(df_recovery_extract_VAT_GNI_positions['RO Local Key'])
-    
-    eventlog = df_recovery_extract_workflow[VAT_GNI_keys]
-    
-    eventlog['action'] = eventlog['Workflow Action Code'] + ' - ' + eventlog['Workflow Step Description']  
-    
-    eventlog.rename(columns={'Workflow Action DateTime': 'time:timestamp', 
-    'RO Local Key': 'case:concept:name', 'action': 'concept:name', 'Workflow Person Id': 'org:resource'}, inplace=True)
-    
-    eventlog['time:start_timestamp'] = eventlog['time:timestamp']
-    
-    log = log_converter.apply(eventlog)
-    
-    #heu_net = heuristics_miner.apply_heu(log)
-    #gviz_heu = hn_visualizer.apply(heu_net)
-    #hn_visualizer.view(gviz_heu)
-        
-    #a peculiar way to insantiate the parameters object, took a while to understand
-    dfg_parameters = dfg_discovery.Variants.PERFORMANCE.value.Parameters
-    parameters = get_properties(log)
-
-    aggregationMeasure = "max"
-    aggregation_measure = "max"
-    parameters[dfg_parameters.AGGREGATION_MEASURE] = aggregationMeasure
-    
-    #dfg = dfg_discovery.apply(log)# Visualise
-    #dfg_perf = dfg_discovery.apply(log, parameters=parameters, variant=dfg_discovery.Variants.PERFORMANCE)
-    
-    
-    
-    #dfg, start_activities, end_activities = pm4py.discover_dfg(log)
-    dfg, start_activities, end_activities = dfg_discovery2(log)
-    
-    #a peculiar way to insantiate the parameters object, took a while to understand
-    dfg_parameters = dfg_visualization.Variants.FREQUENCY.value.Parameters
-    parameters = get_properties(log)
-    #parameters[dfg_parameters.FORMAT] = format
-    parameters[dfg_parameters.START_ACTIVITIES] = start_activities
-    parameters[dfg_parameters.END_ACTIVITIES] = end_activities
-    
-    #gviz_start_end = dfg_visualization.apply(dfg, log=log, parameters=parameters,
-    #                                         variant=dfg_visualization.Variants.FREQUENCY)
-
-    import dfg_frequency
-    gviz_start_end = dfg_frequency.apply(dfg, log=log, parameters=parameters)
-
-    
-    gviz_start_end = gviz_start_end.source
-        
-    
-    #pm4py.view_dfg(dfg_1, start_activities, end_activities)
-    
-    #we don't need these for the moment
-    """
-    dfg_parameters = dfg_visualization.Variants.PERFORMANCE.value.Parameters
-    parameters = get_properties(log)
-    #parameters[dfg_parameters.FORMAT] = format
-    parameters[dfg_parameters.START_ACTIVITIES] = start_activities
-    parameters[dfg_parameters.END_ACTIVITIES] = end_activities
-    #sojourn time also doesn't work, there is no start and end time stamp
-    #parameters[dfg_parameters.START_TIMESTAMP_KEY] = 'time:start_timestamp'
-    #doesn't work, maybe we have an older version, need to check
-    #parameters[dfg_parameters.AGGREGATION_MEASURE] = aggregation_measure
-    
-    gviz_start_end_perf = dfg_visualization.apply(dfg, log=log, parameters=parameters,
-                                             variant=dfg_visualization.Variants.PERFORMANCE)
-    
-    gviz = dfg_visualization.apply(dfg, log=log, variant=dfg_visualization.Variants.FREQUENCY)
-    gviz_perf = dfg_visualization.apply(dfg, log=log, variant=dfg_visualization.Variants.PERFORMANCE)
-    """
-    
-    heu_net = heuristics_miner.apply_heu(log, parameters={heuristics_miner.Variants.CLASSIC.value.Parameters.DEPENDENCY_THRESH: 0.99})
-    gviz_heu = hn_visualizer.apply(heu_net)
-    
-    
-    activity_list = list(heu_net.nodes.keys())
-    #need to get the reverse list, so first activity would be on the top, need to start from 1
-    activity_y_coordinates = list(range(1,len(activity_list)+1))[::-1]
-    
-   # activity_coordinates = list(zip(len(activity_list)*[0], activity_y_coordinates))
-    activity_coord = {}
-    for i, activity in enumerate(activity_list):
-        activity_coord[activity] = activity_y_coordinates[i]
-    
-    #breaking up the dot file into lines
-    gviz_start_end_lines = gviz_start_end.split('\n')
-    for i,line in enumerate(gviz_start_end_lines):
-        for activity in activity_list:
-            if activity in line and "->" not in line:
-                #print(line)
-                #line = line.replace('style=filled]', 'style=filled, pos="1,1"]')
-                activity_name = line.split('"')[1]
-                #activity_coord[activity_name]
-                #we need to add +1 so that the start and end activity would be max + 1 and 0
-                line = line.replace('style=filled]', str('style=filled, pos="0,' + str(activity_coord[activity_name]) + '!\"]'))
-                gviz_start_end_lines[i] = line
-                #print(line)
-            #the startnode has the highest position
-            elif '"@@startnode" [label=' in line:
-                line = line.replace('style=filled]', str('style=filled, pos="0,' + str(len(activity_list)+1) + '!\"]'))
-                gviz_start_end_lines[i] = line
-                line = line.replace('@@S','Start') 
-                line = line.replace('fontcolor="#32CD32"','')
-            #the endnode has the lowets position
-            elif '"@@endnode" [label=' in line:
-                line = line.replace('style=filled]', str('style=filled, pos="0,0!\"]'))
-                line = line.replace('@@E','End') 
-                line = line.replace('fontcolor="#FFA500"','')
-                gviz_start_end_lines[i] = line            
-                
-    
-    #add splines to make it look better
-    gviz_start_end_lines.insert(len(gviz_start_end_lines)-1,'\tsplines=True\n')
-    #putting the dot file back together
-    comparestring = '\n'.join(gviz_start_end_lines)
-    comparestring = comparestring.replace('fontsize=12','fontsize=10')
-    #comparestring == gviz_start_end
-    
-    gviz_start_end = comparestring
-               
-        
-    #gviz_heu.write("heu_graph.txt")
-    
-    #convoluted way to get the dotfile as a string
-    #with open("heu_graph.txt","r") as f:
-    #    gviz_heu = f.read()
-        
-
-    #finally found a method to pass it as as string
-    gviz_heu = gviz_heu.to_string()
-
-    hw_values = sna.apply(log, variant=sna.Variants.HANDOVER_LOG)
-        
-    G, labels = nx_viz(hw_values)
-    
-    
-    weight_matrix = hw_values[0]
-    names = hw_values[1]
-    
-    #create the cytoscape graph
-    pos = nx.layout.circular_layout(G, scale = 4)
-    nodes = [
-        {
-            'data': {'id': str(node), 'label': labels[node]},
-            'position': {'x': int(200*pos[node][0]), 'y': int(200*pos[node][1])},
-            #'locked': 'false'
-        }
-        for node in G.nodes
-    ]
-    
-    
-    edges = []
-    for edge in G.edges:
-        #if {'data': {'source': str(edge[0]), 'target': str(edge[1])}} not in edges and str(edge[0]) != str(edge[1]):
-        #    edges.append({'data': {'source': str(edge[0]), 'target': str(edge[1])}})
-        if str(edge[0]) != str(edge[1]):
-            edges.append({'data': {'source': str(edge[0]), 'target': str(edge[1])}})
-    
-    edges_int = []
-    for edge in G.edges:
-        #if {'data': {'source': edge[0], 'target': edge[1]}} not in edges and edge[0] != edge[1]:
-        #    edges_int.append({'data': {'source': edge[0], 'target': edge[1]}})
-        if str(edge[0]) != str(edge[1]):
-            edges_int.append({'data': {'source': edge[0], 'target': edge[1]}})
-    
-    #adding the weights from the edges_int list. a bit convoluted, but cytoscape requires strings for IDs
-    for i,edge in enumerate(edges_int):
-        #print(i, edge)
-        edges[i]['data']['weight'] = math.log(weight_matrix[edge['data']['source'],edge['data']['target']] * 20000,4)
-        #edges[i]['data']['weight'] = weight_matrix[edge['data']['source'],edge['data']['target']] * 200
-    
-    elements = nodes + edges
-
-
-    
-except:
-    gviz = None
-    gviz_start_end = None 
-    elements = None
-    gviz_heu = None
-
-"""
-df = df[['authorising_officer', 'RO Cashed Payment Amount (Eur)_pos']]
-
-df.columns = ['officer', 'cashed']
-"""
-
-features = df.columns
-
-#helper function for scatterplot labels
-def label_audit_results (row):
-    if row['Errors'] != '[]' :
-        return 'Error'
-    elif row['Warnings'] != '[]' :
-        return 'Warning'
-    else:
-         return 'No error'
-
-
-#calculating VAT and GNI data
-try:
-    df_GNI = pd.read_excel(config_dict['RESULT_FILE'], sheet_name='GNI')
-    df_VAT = pd.read_excel(config_dict['RESULT_FILE'], sheet_name='VAT')
-    
-    df_GNI['Audit results'] = df_GNI.apply (lambda row: label_audit_results(row), axis=1)
-    df_VAT['Audit results'] = df_VAT.apply (lambda row: label_audit_results(row), axis=1)
-    
-    colorsIdx = {'No error': '#1f77b4', 'Warning': '#ff7f0e', 'Error': '#d62728'}
-    
-    df_GNI['Audit classification'] = df_GNI['Audit results'].map(colorsIdx)
-    df_VAT['Audit classification'] = df_VAT['Audit results'].map(colorsIdx)
-    
-    df = df_GNI.append(df_VAT)
-    
-    result = df[['MS', 'transaction_type', 'RO Cashed Amount (Eur)_pos',
-           'Rejection in workflow',
-           'Workflow steps exceed average',
-           'Workflow duration longer than average', 'One-day-approval',
-           'workflow_days_under_30', 'budget_line_correct', 'SAP_accounting_class',
-           'recovery_order_position_amount_in_local_curr_matches_call',
-           'Missing SAP data', 'amount_diff_within_tolerance',
-           'amount_requested_in_time',
-           'cashing deadline_observed', 'CFF_rate_diff_within_tolerance']].groupby(['MS',
-                                                                             'transaction_type']).sum()
-    
-    
-    
-    result = result.reset_index()
-                                                                                    
-    x = result[result['transaction_type']=='VAT']['RO Cashed Amount (Eur)_pos']
-    y = result[result['transaction_type']=='GNI']['RO Cashed Amount (Eur)_pos']
-    ms = result[result['transaction_type']=='VAT']['MS']
-    
-    df2 = pd.DataFrame()
-    df2['GNI'] = list(y)
-    df2['VAT'] = list(x)
-    df2['MS'] = list(ms)
-    
-    df_GNI_errors = df_GNI[df_GNI['Errors'] != '[]']
-    df_VAT_errors = df_VAT[df_VAT['Errors'] != '[]']
-    
-    df_GNI_warnings = df_GNI[df_GNI['Warnings'] != '[]']
-    df_VAT_warnings = df_VAT[df_VAT['Warnings'] != '[]']
-    2
-    df_GNI_risks = df_GNI[(df_GNI['Risk flags'] != '[]') & (df_GNI['Risk flags'] != "['One-day-approval']")  & (df_GNI['Risk flags'] != "['Workflow duration longer than average']")]
-    df_VAT_risks = df_VAT[(df_VAT['Risk flags'] != '[]') & (df_VAT['Risk flags'] != "['One-day-approval']")  & (df_VAT['Risk flags'] != "['Workflow duration longer than average']")]
-    
-    df_errors = df_GNI_errors.append(df_VAT_errors)
-    
-    df_warnings = df_GNI_warnings.append(df_VAT_warnings)
-    
-    df_risks = df_GNI_risks.append(df_VAT_risks)
-    
-    df_errors = df_errors[['RO Position Local Key', 
-           'GL Account Short Desc', 'RO Due Date','RO Cashing Cashed Date',
-           'RO SubNature of Recovery Desc', 'RO Cashed Amount (Eur)_pos',
-           'month', 'MS', 'authorising_officer',
-           'Risk flags', 'Warnings', 'Errors']]
-    
-    df_warnings = df_warnings[['RO Position Local Key', 
-           'GL Account Short Desc', 'RO Due Date','RO Cashing Cashed Date',
-           'RO SubNature of Recovery Desc', 'RO Cashed Amount (Eur)_pos',
-           'month', 'MS', 'authorising_officer',
-           'Risk flags', 'Warnings', 'Errors']]
-    
-    df_risks = df_risks[['RO Position Local Key', 
-           'GL Account Short Desc', 'RO Due Date','RO Cashing Cashed Date',
-           'RO SubNature of Recovery Desc', 'RO Cashed Amount (Eur)_pos',
-           'month', 'MS', 'authorising_officer',
-           'Risk flags', 'Warnings', 'Errors']]
-
-except:
-
-    df_errors = pd.DataFrame()
-    df_warnings = pd.DataFrame()
-    df_risks = pd.DataFrame()
-    df2 = pd.DataFrame()
-    
-#errors = df_errors.to_dict('records')
-#warnings = df_warnings.to_dict('records')
-
-try:
-    error_stats = 'Number of errors: ' + str(len(df_errors)) + ' / ' + str(len(df)) + ', Amount affected by error: ' + str(int(df_errors['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
-    warning_stats = 'Number of warnings: ' + str(len(df_warnings)) + ' / ' + str(len(df)) + ', Amount affected by warnings: ' + str(int(df_warnings['RO Cashed Amount (Eur)_pos'].sum())) + ' EUR'
-    countries_with_error = 'Member States affected by errors: ' + str(list(set(df_errors['MS'])))
-    countries_with_warning = 'Member States affected by warnings: ' +  str(list(set(df_warnings['MS'])))
-    
-    error_stats = [error_stats, html.Br(), countries_with_error]
-    warning_stats = [warning_stats, html.Br(), countries_with_warning]
-except:
-    error_stats = ''
-    warning_stats = ''
-
 layout =     dbc.Container([
-        dbc.Row([
+        
+    dbc.Row([
             dbc.Col(html.H1("GNI and VAT revenue checks dashboard", className="text-center")
                     , className="mb-5 mt-5")
-        ]),
+        ]),#end of row
 
+        #triggers the data update
+        html.Div(id="onload"),
+        #hide the output
+        html.Div(id="onload_output"), 
 
         html.Div([
-    
-        dcc.Tabs([
-            
+                
+        dcc.Tabs(id='tabs-dash', value='error_analysis', children=[
+            dcc.Tab(label='Error Analysis', value='error_analysis'),
+            dcc.Tab(label='Visual Analytics', value='visual_analytics'),
+            dcc.Tab(label='Actual Process', value='actual_process'),
+            dcc.Tab(label='Process Model', value='process_model'),
+            dcc.Tab(label='Social Network Analysis', value='social_network'),       
+           
+            ]),#tabs
+        
+            html.Div(id='tabs-content-dash')
+        
+        ],
+    style={'padding':10}),#end of div
+     
+    ])#end of container
 
-        dcc.Tab(label='Error analysis', children=[
+@app.callback(Output('tabs-content-dash', 'children'),
+              Input('tabs-dash', 'value'))
+              #State('datatable-cff', 'contents'))
+def render_content(tab):
+
+    if tab == 'error_analysis':       
+        return html.Div([
+            
+            dbc.Container([
+            
  
         html.Hr(),
         
@@ -441,26 +156,17 @@ layout =     dbc.Container([
                                      )
                     , className="mb-4")
             ]),
- 
-        #dbc.Row([
-        #    dbc.Col([html.H5(children='Errors')]
-        #            , className="mb-5")
-        #    ]),
 
         dbc.Row([
-            dbc.Col([html.H5(children=error_stats)]
+            dbc.Col([html.H5(children=config_dict['dash_error_stats'])]
                     , className="mb-5")
             ]),
 
-        #dbc.Row([
-        #    dbc.Col([html.H5(children=countries_with_error)]
-        #            , className="mb-5")
-        #    ]),
                   
             dbc.Container([
                     
-                        html.Div(dt.DataTable(columns=[{"name": i, "id": i} for i in df_errors.columns], 
-                                              data=df_errors.to_dict('records'), 
+                        html.Div(dt.DataTable(columns=[{"name": i, "id": i} for i in config_dict['dash_df_errors'].columns], 
+                                              data=config_dict['dash_df_errors'].to_dict('records'), 
                                               id='table_errors',
                                               style_table={'overflowX': 'auto'},))
                                     
@@ -471,7 +177,7 @@ layout =     dbc.Container([
 
             dbc.Row([
             #dbc.Col(html.H5(#children='Warnings'
-            dbc.Col(html.H5(children=warning_stats
+            dbc.Col(html.H5(children=config_dict['dash_warning_stats']
                                      )
                     , className="mb-5")
             ]),
@@ -483,8 +189,8 @@ layout =     dbc.Container([
     
             dbc.Container([
                     
-                        html.Div(dt.DataTable(columns=[{"name": i, "id": i} for i in df_warnings.columns], 
-                                              data=df_warnings.to_dict('records'), 
+                        html.Div(dt.DataTable(columns=[{"name": i, "id": i} for i in config_dict['dash_df_warnings'].columns], 
+                                              data=config_dict['dash_df_warnings'].to_dict('records'), 
                                               id='table_errors',
                                               style_table={'overflowX': 'auto'},))
                                     
@@ -500,19 +206,24 @@ layout =     dbc.Container([
     
             dbc.Container([
                     
-                        html.Div(dt.DataTable(columns=[{"name": i, "id": i} for i in df_risks.columns], 
-                                              data=df_risks.to_dict('records'), 
+                        html.Div(dt.DataTable(columns=[{"name": i, "id": i} for i in config_dict['dash_df_risks'].columns], 
+                                              data=config_dict['dash_df_risks'].to_dict('records'), 
                                               id='table_risks',
                                               style_table={'overflowX': 'auto'},))
                                     
             ]),#end of container
             
-        ]),     #end of tab               
+        ]),     #end of to level container
+
+        ]) #end of top level div               
 
             
 
-        
-        dcc.Tab(label='Visual Analytics', children=[
+  
+    elif tab == 'visual_analytics':     
+        return html.Div([
+            
+            dbc.Container([                
 
         html.Hr(), 
 
@@ -525,7 +236,7 @@ layout =     dbc.Container([
             html.Div([
             dcc.Dropdown(
                 id='xaxis',
-                options=[{'label': i.title(), 'value': i} for i in features],
+                options=[{'label': i.title(), 'value': i} for i in config_dict['dash_features']],
                 value='MS'
             )
         ],
@@ -534,7 +245,7 @@ layout =     dbc.Container([
         html.Div([
             dcc.Dropdown(
                 id='yaxis',
-                options=[{'label': i.title(), 'value': i} for i in features],
+                options=[{'label': i.title(), 'value': i} for i in config_dict['dash_features']],
                 value='RO Cashed Payment Amount (Eur)_pos'
             )
         ],style={'width': '48%', 'float': 'right', 'display': 'inline-block'}),
@@ -567,9 +278,14 @@ layout =     dbc.Container([
         
         
                                             ], #end of children        
-            ), #end of tab
-        
-        dcc.Tab(label='Actual Process', children=[
+            ), #end of to level container
+        ]) #end of top level div
+
+
+    elif tab == 'actual_process':     
+        return html.Div([
+            
+            dbc.Container([
  
         html.Hr(),
         
@@ -579,7 +295,6 @@ layout =     dbc.Container([
                     , className="mb-4")
             ]),
                    
-            #dbc.Container([
             html.Div([
                 
                     html.Div(
@@ -590,7 +305,7 @@ layout =     dbc.Container([
                         #engine='neato',
                         #style=dict(display="flex", flexDirection="column", fit="True", scale="1"),
                         #style={'fit': True, 'scale':'1'},
-                        dot_source=gviz_start_end)
+                        dot_source=config_dict['dash_gviz_start_end'])
                     
                     ),
                     
@@ -625,10 +340,16 @@ layout =     dbc.Container([
                 ),#end of upper level div/container
  
             
-        ]),     #end of tab   
+        ]),     #end of top level container
+            
+        ]) #end of top level div
       
-        dcc.Tab(label='Process Model', children=[
-                    
+
+    elif tab == 'process_model':
+        return html.Div([
+            
+            dbc.Container([
+                   
         html.Hr(),
         
         dbc.Row([
@@ -647,7 +368,7 @@ layout =     dbc.Container([
                         #engine='neato',
                         #style=dict(display="flex", flexDirection="column", fit="True", scale="1"),
                         #style={'fit': True, 'scale':'1'},
-                        dot_source=gviz_heu)
+                        dot_source=config_dict['dash_gviz_heu'])
                     
                     ),
                     
@@ -660,23 +381,24 @@ layout =     dbc.Container([
                                     
             ]),#end of container
             
-        ]),     #end of tab   
+        ]),     #end of top level container
+            
+        ]) #end of top level div
         
 
-
-        dcc.Tab(label='Social Network Analysis', children=[
-                    
+    elif tab == 'social_network':   
+        return html.Div([
+            
+            dbc.Container([
+                  
         html.Hr(),
         
         dbc.Row([
             dbc.Col(html.H5(children='This is the "working together" social network of users:'
                                      )
                     , className="mb-4")
-            ]),
-                 
+            ]),                 
                                 html.Div([
-                                    
-                                    
                                     
                                                     html.Div([
                         
@@ -691,7 +413,7 @@ layout =     dbc.Container([
                                         id='cytoscape',
                                         layout={'name': 'preset', 'directed':'True'},
                                         style={'width': '100%', 'height': '900px'},
-                                        elements=elements,
+                                        elements=config_dict['dash_elements'] ,
                                         responsive=True,
                                         stylesheet=[
                                         {
@@ -737,15 +459,11 @@ layout =     dbc.Container([
                                     #        dot_source=gviz_heu.source),                                           
                                     #]),
             
-        ]),     #end of tab   
+        ]),     #end of top level container   
         
-        
-            ])#tabs
-        
-        ],
-    style={'padding':10})
      
-    ])#end of container
+    ])#end of top level div
+        
         
 
 @app.callback(
@@ -753,6 +471,7 @@ layout =     dbc.Container([
     [Input('xaxis', 'value'),
      Input('yaxis', 'value')])
 def update_VAT_scatterplot(xaxis_name, yaxis_name):
+    df_VAT = config_dict['dash_df_VAT']
     return {
         'data': [go.Scatter(
             x=df_VAT[df_VAT['Audit results']=='No error'][xaxis_name],
@@ -827,6 +546,8 @@ def update_VAT_scatterplot(xaxis_name, yaxis_name):
     [Input('xaxis', 'value'),
      Input('yaxis', 'value')])
 def update_GNI_scatterplot(xaxis_name, yaxis_name):
+    df_GNI = config_dict['dash_df_GNI']
+    colorsIdx = {'No error': '#1f77b4', 'Warning': '#ff7f0e', 'Error': '#d62728'}
     return {
         'data': [go.Scatter(
             x=df_GNI[xaxis_name],
@@ -894,27 +615,32 @@ def update_GNI_scatterplot(xaxis_name, yaxis_name):
     }
 
 
-#calculating the regression line manually for 
-from sklearn.model_selection import train_test_split
-from sklearn import linear_model
-try:
-    X = np.array(df2.VAT).reshape(-1,1)
-    #Y = np.array(df2.GNI).reshape(-1,1)
-    X_train, X_test, y_train, y_test = train_test_split(X, df2.GNI, random_state=42)
-    
-    model = linear_model.LinearRegression()
-    model.fit(X_train, y_train)
-    
-    x_range = np.linspace(X.min(), X.max(), 100)
-    y_range = model.predict(x_range.reshape(-1, 1))
-except:
-    x_range = 1
-    y_range = 1
+
 @app.callback(
     Output('VAT_vs_GNI', 'figure'),
     [Input('xaxis', 'value'),
      Input('yaxis', 'value')])
 def update_VAT_graph(xaxis_name, yaxis_name):
+    df2 = config_dict['dash_df2']
+    
+    #calculating the regression line manually for 
+    from sklearn.model_selection import train_test_split
+    from sklearn import linear_model
+
+    try:
+        X = np.array(df2.VAT).reshape(-1,1)
+        #Y = np.array(df2.GNI).reshape(-1,1)
+        X_train, X_test, y_train, y_test = train_test_split(X, df2.GNI, random_state=42)
+        
+        model = linear_model.LinearRegression()
+        model.fit(X_train, y_train)
+        
+        x_range = np.linspace(X.min(), X.max(), 100)
+        y_range = model.predict(x_range.reshape(-1, 1))
+    except:
+        x_range = 1
+        y_range = 1
+    
     return {
         'data': [go.Scatter(
             x=df2['VAT'],
@@ -943,6 +669,7 @@ def update_VAT_graph(xaxis_name, yaxis_name):
 
 @app.callback(Output("selection", "children"), [Input("graph", "selected_node"), Input("graph", "selected_edge")])
 def show_selected(node, edge):
+    eventlog = config_dict['dash_eventlog']
     node_count = eventlog[eventlog['concept:name']==node]
     #edge info is not used yet
     #edge_count = eventlog[eventlog['concept:name']==edge]
@@ -961,6 +688,7 @@ def show_selected_heu(node, edge):
     [Input("cytoscape", "tapNodeData"), Input("cytoscape", "tapEdgeData")])
 def show_selected_cyto(node, edge):
     #we don't use the edges at this point, maybe later
+    eventlog = config_dict['dash_eventlog']
     basic_info = str(node)# + ' / ' + str(edge)
     try:
         extended_info = 'Involved in ' + str(len(eventlog[eventlog['org:resource']==node['label']]['case:concept:name'].unique())) + ' / ' +str(len(eventlog['case:concept:name'].unique())) + ' cases'
@@ -974,6 +702,19 @@ def show_selected_cyto(node, edge):
 )
 def display_output(value):
     return value
+
+@app.callback(
+    Output("onload_output", "children"),
+    Trigger("onload", "children"))
+def load_df(onload):    
+    
+    #reload the key-value store, otherwise it won't update the cached version, it seems
+    config_dict = SqliteDict('./config/config_db.sqlite', autocommit=True)
+    
+    a = '\n '
+    for key in config_dict:
+        a = a + key + ' ->  ' + str(config_dict[key]) + '\n \n'
+    return ''#a
 
 #if __name__ == '__main__':
 #    app.run_server()

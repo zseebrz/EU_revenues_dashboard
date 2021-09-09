@@ -271,11 +271,41 @@ layout = html.Div(
         
         ]),
         
-    dbc.Button('Delete all uploaded files',
-               id='delete_files',
-               color="danger",
-               className="mt-3",
-               n_clicks=0),         
+                        html.Div([
+                        
+                            dbc.Row(
+                                [
+                                    dbc.Col(html.Div([
+                        
+                        dbc.Button('Delete all uploaded files',
+                                   id='delete_files',
+                                   color="danger",
+                                   className="mt-3",
+                                   n_clicks=0),
+
+                                                    ] )),#end of col
+
+                                    dbc.Col(html.Div([
+
+                        
+                        dcc.Link(
+
+                        dbc.Button('Go to pre-processing and audit checks', 
+                                                      id='change-tab-button',
+                                                      color="success",
+                                                      className="mt-3",
+                                                      n_clicks=0),
+                        
+                        href='/preprocess_checks'),
+                                        
+                                                    ] ))#end of col
+
+                                ])#end of row                                                   
+                        
+
+                        ]), #end of div
+
+         
     #html.Button('Delete all uploaded files', id='delete_files', n_clicks=0),    
     html.Div(id='deleted'),
 
